@@ -10,9 +10,11 @@ use std::ffi::OsString;
 use std::error::Error;
 use std::path::PathBuf;
 use std::thread;
-use std::fmt;
 use std::fs;
 use itertools::Itertools;
+
+type Ident = u16;
+const TILE_AREA: usize = 4;
 
 #[derive(Default)]
 struct ShellInfo {
@@ -41,12 +43,7 @@ impl ShellInfo {
 }
 
 #[derive(Default, Debug, Copy, Clone)]
-enum Color {
-    #[default]
-    None,
-    FgColor(u8),
-    BgColor(u8),
-}
+struct Color(i32);
 
 #[derive(Default)]
 struct Window {
@@ -87,15 +84,14 @@ impl Window {
 }
 
 trait StringExtensions {
-    fn as_tile_ids(&self, tile_atlas: &mut HashMap<Ident, Tile>) -> Vec<Ident>;
+    fn as_tile_ids(&self, game: &mut Game) -> Vec<Ident>;
 }
 
 // TODO: Add tests for this function
 impl StringExtensions for String {
-    fn as_tile_ids(&self, tile_atlas: &mut HashMap<Ident, Tile>) -> Vec<Ident> {
+    fn as_tile_ids(&self, game: &mut Game) -> Vec<Ident> {
         let lines: Vec<&str> = self.split("\n").collect();
         let len = self.replace("\n", "").len();
-        debug_assert!(len == 256);
 
         let mut pix_bufs: Vec<Tile> = vec![Tile::default(); len / TILE_AREA];
         let mut tile_ids: Vec<Ident> = Vec::new();
@@ -112,19 +108,16 @@ impl StringExtensions for String {
                 pix_bufs[tile_idx].pix_buf[pixel_idx] = lines[y].as_bytes()[x];
 
                 if pixel_idx == (TILE_AREA - 1) {
-                    unsafe { // Unsafe due to incrementing static variable NEXT_TILE_ID
-                        let tile = Tile::new(
-                            NEXT_TILE_ID,
-                            stride,
-                            // TODO: Implement
-                            [ Color::FgColor(32); TILE_AREA ],
-                            pix_bufs[tile_idx].pix_buf
-                        );
+                    let tile = Tile::new(
+                        { let tmp = game.next_tile_id; game.next_tile_id += 1; tmp },
+                        stride,
+                        // TODO: Implement
+                        [ Color(32); TILE_AREA ],
+                        pix_bufs[tile_idx].pix_buf
+                    );
 
-                        tile_atlas.insert(NEXT_TILE_ID, tile);
-                        tile_ids.push(NEXT_TILE_ID);
-                        NEXT_TILE_ID += 1;
-                    }
+                    game.tile_atlas.insert(tile.id, tile);
+                    tile_ids.push(tile.id);
                 }
 
                 pixel_idx += 1;
@@ -139,16 +132,10 @@ impl StringExtensions for String {
     }
 }
 
-type Ident = u16;
-static mut NEXT_TILE_ID: Ident = 0;
-static mut NEXT_SPRITE_ID: Ident = 0;
-const TILE_AREA: usize = 4;
-
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 struct Tile {
     id: Ident,                      // The tile's unique identifier
     stride: usize,                  // Stride for both color_buf and pix_buf
-    // TODO: Do i make this a tuple for fg and bg colors?
     color_buf: [Color; TILE_AREA],  // The color data corresponding to each pixel in the tile
     pix_buf: [u8; TILE_AREA],       // The "pixel" data i.e. sequence of characters
 }
@@ -161,15 +148,6 @@ impl Tile {
         pix_buf: [u8; TILE_AREA]
     ) -> Self {
         Tile { id, stride, color_buf, pix_buf }
-    }
-
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Tile")
-            .field("id", &self.id)
-            .field("stride", &self.stride)
-            .field("color_buf", &self.color_buf)
-            .field("pix_buf", &self.pix_buf)
-            .finish()
     }
 }
 
@@ -184,10 +162,9 @@ struct Sprite {
 }
 
 impl Sprite {
-    fn default() -> Self {
+    fn default(game: &mut Game) -> Self {
         Sprite {
-            // TODO: Increment
-            id: unsafe { NEXT_SPRITE_ID },
+            id: { let tmp = game.next_sprite_id; game.next_sprite_id += 1; tmp },
             file_handle: PathBuf::new(),
             tile_data: Vec::new(),
             x_pos: 0.0,
@@ -198,7 +175,8 @@ impl Sprite {
 
     fn validate(&self) -> Result<(), String> {
         // Sprite tile data size should be a perfect square and multiple of TILE_AREA
-        if (self.tile_data.len() as f64).sqrt() % (TILE_AREA as f64) != 0.0 {
+        if self.tile_data.len() == 0 ||
+           (self.tile_data.len() as f64).sqrt() % (TILE_AREA as f64) != 0.0 {
             Result::Err(format!("Sprite {}'s tile data is of an invalid size", self.id))
         } else {
             Result::Ok(())
@@ -211,13 +189,13 @@ impl Sprite {
         Ok(pix_buf)
      }
 
-    fn new(tile_atlas: &mut HashMap<Ident, Tile>, file_handle: PathBuf, z_order: u8) -> Self {
+    fn new(game: &mut Game, file_handle: PathBuf, z_order: u8) -> Self {
         let pix_buf = Self::load_raster_from_file(&file_handle)
             .expect("Failed to load sprite data from file");
 
-        let mut sprite: Sprite = Sprite::default();
+        let mut sprite: Sprite = Sprite::default(game);
         sprite.file_handle = file_handle;
-        sprite.tile_data = pix_buf.as_tile_ids(tile_atlas);
+        sprite.tile_data = pix_buf.as_tile_ids(game);
         sprite.z_order = z_order;
 
         let result = sprite.validate();
@@ -239,6 +217,9 @@ trait GameLogic {
 struct Game {
     // TODO: Make HashSet
     tile_atlas: HashMap<Ident, Tile>,
+    next_tile_id: Ident,
+    next_sprite_id: Ident,
+    next_actor_id: Ident,
     fn_on_start: Box<dyn Fn() -> ()>,
     fn_on_update: Box<dyn Fn() -> ()>,
 }
@@ -282,9 +263,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         panic!("Window is too small");
     }
 
-    // Create a game entity
+    // Create a game object
     let mut game = Game {
         tile_atlas: HashMap::new(),
+        next_tile_id: 0,
+        next_sprite_id: 0,
+        next_actor_id: 0,
+
         fn_on_start: Box::new(|| {
             println!("Game starting...");
         }),
@@ -294,7 +279,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // Load sprites (TODO: Put into separate function)
-    let mushroom_sprite = Sprite::new(&mut game.tile_atlas, PathBuf::from("assets/sprites/mushroom.txt"), 255);
+    // TODO: Make more idomatic by opening dir entry and reading each file from there using iterator
+    let mushroom_sprite = Sprite::new(&mut game, PathBuf::from("assets/sprites/mushroom.txt"), 255);
 
     // TODO: Implement as Debug trait for tile_atlas
     for ident in game.tile_atlas.keys().sorted() {
