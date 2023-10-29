@@ -1,20 +1,23 @@
 #![allow(non_snake_case)]
 
+pub mod ascii_bros;
+pub mod game;
+pub mod actor;
+
+use crate::game::*;
+use crate::ascii_bros::Color;
+
 use crate::libc::STDIN_FILENO;
 use crate::libc::ioctl;
-use nix::libc;
+use crate::actor::sprite::Sprite;
 
 //use signal_hook::{consts::SIGWINCH, iterator::Signals};
 use std::collections::HashMap;
-use std::ffi::OsString;
-use std::error::Error;
-use std::path::PathBuf;
+use std::ffi::{OsString, OsStr};
+use std::path::{PathBuf, Path};
 use std::thread;
-use std::fs;
 use itertools::Itertools;
-
-type Ident = u16;
-const TILE_AREA: usize = 4;
+use nix::libc;
 
 #[derive(Default)]
 struct ShellInfo {
@@ -41,9 +44,6 @@ impl ShellInfo {
         ShellInfo { cols: winsize.ws_col, lines: winsize.ws_row }
     }
 }
-
-#[derive(Default, Debug, Copy, Clone)]
-struct Color(i32);
 
 #[derive(Default)]
 struct Window {
@@ -83,176 +83,7 @@ impl Window {
     }
 }
 
-trait StringExtensions {
-    fn as_tile_ids(&self, game: &mut Game) -> Vec<Ident>;
-}
-
-// TODO: Add tests for this function
-impl StringExtensions for String {
-    fn as_tile_ids(&self, game: &mut Game) -> Vec<Ident> {
-        let lines: Vec<&str> = self.split("\n").collect();
-        let len = self.replace("\n", "").len();
-
-        let mut pix_bufs: Vec<Tile> = vec![Tile::default(); len / TILE_AREA];
-        let mut tile_ids: Vec<Ident> = Vec::new();
-
-        let (mut prev_pixel_idx, mut pixel_idx, mut tile_idx): (usize, usize, usize);
-        let stride = (TILE_AREA as f64).sqrt() as usize;
-
-        for y in 0..(lines.len() - 1) {
-            prev_pixel_idx = (y * stride) % TILE_AREA;
-            pixel_idx = prev_pixel_idx;
-
-            for x in 0..(lines.len() - 1) {
-                tile_idx = ((y / stride) * (lines.len() / stride)) + (x / stride);
-                pix_bufs[tile_idx].pix_buf[pixel_idx] = lines[y].as_bytes()[x];
-
-                if pixel_idx == (TILE_AREA - 1) {
-                    let tile = Tile::new(
-                        { let tmp = game.next_tile_id; game.next_tile_id += 1; tmp },
-                        stride,
-                        // TODO: Implement
-                        [ Color(32); TILE_AREA ],
-                        pix_bufs[tile_idx].pix_buf
-                    );
-
-                    game.tile_atlas.insert(tile.id, tile);
-                    tile_ids.push(tile.id);
-                }
-
-                pixel_idx += 1;
-                if pixel_idx > (((y % stride) + 1) * stride) - 1 {
-                    pixel_idx = prev_pixel_idx;
-                }
-            }
-            println!();
-        }
-
-        tile_ids
-    }
-}
-
-#[derive(Default, Clone, Copy)]
-struct Tile {
-    id: Ident,                      // The tile's unique identifier
-    stride: usize,                  // Stride for both color_buf and pix_buf
-    color_buf: [Color; TILE_AREA],  // The color data corresponding to each pixel in the tile
-    pix_buf: [u8; TILE_AREA],       // The "pixel" data i.e. sequence of characters
-}
-
-impl Tile {
-    fn new(
-        id: Ident,
-        stride: usize,
-        color_buf: [Color; TILE_AREA],
-        pix_buf: [u8; TILE_AREA]
-    ) -> Self {
-        Tile { id, stride, color_buf, pix_buf }
-    }
-}
-
-#[derive(Default, Debug)]
-struct Sprite {
-    id: Ident,                  // The sprite's unique identifier
-    file_handle: PathBuf,       // The path at which to find the sprite data
-    tile_data: Vec<Ident>,      // A vector of Tile IDs ordered from left to right, top to bottom
-    x_pos: f32,                 // The current x position of the sprite (in sub-pixels)
-    y_pos: f32,                 // The current y position of the sprite (in sub-pixels)
-    z_order: u8                 // The z layer priority of the sprite when rendered
-}
-
-impl Sprite {
-    fn default(game: &mut Game) -> Self {
-        Sprite {
-            id: { let tmp = game.next_sprite_id; game.next_sprite_id += 1; tmp },
-            file_handle: PathBuf::new(),
-            tile_data: Vec::new(),
-            x_pos: 0.0,
-            y_pos: 0.0,
-            z_order: 0
-        }
-    }
-
-    fn validate(&self) -> Result<(), String> {
-        // Sprite tile data size should be a perfect square and multiple of TILE_AREA
-        if self.tile_data.len() == 0 ||
-           (self.tile_data.len() as f64).sqrt() % (TILE_AREA as f64) != 0.0 {
-            Result::Err(format!("Sprite {}'s tile data is of an invalid size", self.id))
-        } else {
-            Result::Ok(())
-        }
-    }
-
-    fn load_raster_from_file(file_handle: &PathBuf) -> Result<String, Box<dyn Error>> {
-        let pix_buf = fs::read_to_string(file_handle.as_path())?.replace("@", " ");
-        println!("{}", pix_buf);
-        Ok(pix_buf)
-     }
-
-    fn new(game: &mut Game, file_handle: PathBuf, z_order: u8) -> Self {
-        let pix_buf = Self::load_raster_from_file(&file_handle)
-            .expect("Failed to load sprite data from file");
-
-        let mut sprite: Sprite = Sprite::default(game);
-        sprite.file_handle = file_handle;
-        sprite.tile_data = pix_buf.as_tile_ids(game);
-        sprite.z_order = z_order;
-
-        let result = sprite.validate();
-        match result {
-            Result::Err(message) => { panic!("{}", message); },
-            _ => ()
-        }
-
-        sprite
-    }
-}
-
-trait GameLogic {
-    fn on_start(&self);
-    fn on_update(&self);
-}
-
-// Handles game logic e.g. timers, physics, etc.
-struct Game {
-    // TODO: Make HashSet
-    tile_atlas: HashMap<Ident, Tile>,
-    next_tile_id: Ident,
-    next_sprite_id: Ident,
-    next_actor_id: Ident,
-    fn_on_start: Box<dyn Fn() -> ()>,
-    fn_on_update: Box<dyn Fn() -> ()>,
-}
-
-impl GameLogic for Game {
-    fn on_start(&self) {
-        (self.fn_on_start)();
-    }
-
-    fn on_update(&self) {
-        // delta_time = get_delta_time();
-        (self.fn_on_update)();
-    }
-}
-
-struct Actor {
-    id: Ident,
-    sprite: Sprite,
-    fn_on_start: Box<dyn Fn() -> ()>,
-    fn_on_update: Box<dyn Fn() -> ()>,
-}
-
-impl GameLogic for Actor {
-    fn on_start(&self) {
-        (self.fn_on_start)();
-    }
-
-    fn on_update(&self) {
-        (self.fn_on_update)();
-    }
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> ! {
     // Get $COLUMNS and $ROWS
     let shell_info: ShellInfo = ShellInfo::default();
     println!("cols: {} lines: {}", shell_info.cols, shell_info.lines);
@@ -280,7 +111,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Load sprites (TODO: Put into separate function)
     // TODO: Make more idomatic by opening dir entry and reading each file from there using iterator
-    let mushroom_sprite = Sprite::new(&mut game, PathBuf::from("assets/sprites/mushroom.txt"), 255);
+    let proj_root = env!("CARGO_MANIFEST_DIR").to_owned() + "/";
+    let sprite_dir = "assets/sprites/mushroom.txt";
+    let full_path = OsString::from(proj_root + sprite_dir);
+    let mushroom_sprite = Sprite::new(&mut game, PathBuf::from(full_path), 255);
 
     // TODO: Implement as Debug trait for tile_atlas
     for ident in game.tile_atlas.keys().sorted() {
