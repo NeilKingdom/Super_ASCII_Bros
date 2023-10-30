@@ -12,12 +12,14 @@ use crate::libc::ioctl;
 use crate::actor::sprite::Sprite;
 
 //use signal_hook::{consts::SIGWINCH, iterator::Signals};
+use termios::{Termios, TCSANOW, ECHO, ICANON, tcsetattr};
 use std::collections::HashMap;
-use std::ffi::{OsString, OsStr};
-use std::path::{PathBuf, Path};
+use std::ffi::OsString;
+use std::path::PathBuf;
 use std::thread;
-use itertools::Itertools;
+use std::io::{self, Read};
 use nix::libc;
+use std::sync::mpsc::channel;
 
 #[derive(Default)]
 struct ShellInfo {
@@ -27,7 +29,6 @@ struct ShellInfo {
 
 impl ShellInfo {
     fn default() -> Self {
-
         // Initialize a winsize struct to store the terminal's column & line count
         let mut winsize = libc::winsize {
             ws_row: 0,
@@ -65,6 +66,7 @@ impl Window {
     }
 
     fn clear() {
+        // TODO: Make constants and place in enum
         print!("\x1b[2J");      // Clear the screen
         print!("\x1b[H");       // Move cursor to position (0, 0)
         print!("\x1b[?25l");    // Hide cursor
@@ -83,6 +85,8 @@ impl Window {
     }
 }
 
+struct KeyPress(char);
+
 fn main() -> ! {
     // Get $COLUMNS and $ROWS
     let shell_info: ShellInfo = ShellInfo::default();
@@ -99,54 +103,53 @@ fn main() -> ! {
         tile_atlas: HashMap::new(),
         next_tile_id: 0,
         next_sprite_id: 0,
-        next_actor_id: 0,
 
         fn_on_start: Box::new(|| {
             println!("Game starting...");
         }),
-        fn_on_update: Box::new(move || {
+        fn_on_update: Box::new(move |timeElapsed| {
             win.render_frame();
         })
     };
 
     // Load sprites (TODO: Put into separate function)
     // TODO: Make more idomatic by opening dir entry and reading each file from there using iterator
-    let proj_root = env!("CARGO_MANIFEST_DIR").to_owned() + "/";
-    let sprite_dir = "assets/sprites/mushroom.txt";
-    let full_path = OsString::from(proj_root + sprite_dir);
+    let sprite_dir = env!("CARGO_MANIFEST_DIR").to_owned() + "/assets/sprites/";
+    let ss_mushroom = "mushroom.txt";
+    let full_path = OsString::from(sprite_dir + ss_mushroom);
     let mushroom_sprite = Sprite::new(&mut game, PathBuf::from(full_path), 255);
 
-    // TODO: Implement as Debug trait for tile_atlas
-    for ident in game.tile_atlas.keys().sorted() {
-        print!("{:<2} [", ident);
-        let tile = game.tile_atlas.get(ident);
-        for pixel in tile.unwrap().pix_buf {
-            print!("{}, ", pixel as char);
-        }
-        println!("]");
-    }
+    //println!("{:#?}", game);
 
-    /*
-    let mut signals = Signals::new(&[SIGWINCH])?;
-    thread::spawn(move || {
-        for _sig in signals.forever() {
-            todo!();
-        }
-    });
-    */
+    //let mut signals = Signals::new(&[SIGWINCH])?;
+    //thread::spawn(move || {
+    //    for _sig in signals.forever() {
+    //        todo!();
+    //    }
+    //});
+
+    let (tx, rx) = channel();
+
+    // Get the current terminal settings
+    let orig_termios = Termios::from_fd(0).expect("from_fd failed");
 
     // Spawn thread for polling keyboard input
-    thread::spawn(|| {
-        loop {
-            // TODO: Set terminal to raw mode using ansi control code
+    thread::spawn(move || {
+        let stdin = io::stdin();
+        let mut handle = stdin.lock();
 
-            /*match usr_input.as_str() {
-                " " => { println!("Jump") },
-                "a" => { println!("Left") },
-                "d" => { println!("Right") },
-                _ => ()
+        // Disable canonical mode (line buffering) and echo
+        let mut new_termios = orig_termios.clone();
+        new_termios.c_lflag &= !(ICANON | ECHO);
+        tcsetattr(0, TCSANOW, &new_termios).expect("tcsetattr failed");
+
+        loop {
+            // Read and process input
+            let mut input = [0u8; 1];
+            while handle.read_exact(&mut input).is_ok() {
+                let c = input[0] as char;
+                tx.send(c).expect("send failed");
             }
-            */
         }
     });
 
@@ -155,6 +158,20 @@ fn main() -> ! {
 
     // Game loop
     loop {
+        // Receive user input from channel
+        let c = KeyPress(rx.recv().expect("recv failed"));
+        match c {
+            KeyPress(' ') => println!("jump"),
+            KeyPress('a') => println!("left"),
+            KeyPress('d') => println!("right"),
+            _ => ()
+        }
+
+        if c.0 == 'q' {
+            // Exit raw mode
+            tcsetattr(0, TCSANOW, &orig_termios).expect("tcsetattr failed");
+        }
+
         //game.on_update();
         // TODO:
         // for actor in actors {
