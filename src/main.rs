@@ -5,7 +5,9 @@ pub mod game;
 pub mod actor;
 
 use crate::game::*;
+use crate::actor::Actor;
 use crate::ascii_bros::Color;
+use crate::actor::sprite::tile::TILE_AREA;
 
 use crate::libc::STDIN_FILENO;
 use crate::libc::ioctl;
@@ -16,15 +18,17 @@ use termios::{Termios, TCSANOW, ECHO, ICANON, tcsetattr};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::mem::size_of;
 use std::thread;
+use std::rc::Rc;
 use std::io::{self, Read};
 use nix::libc;
 use std::sync::mpsc::channel;
 
 #[derive(Default)]
 struct ShellInfo {
-    cols: u16,
-    lines: u16,
+    cols: usize,
+    lines: usize,
 }
 
 impl ShellInfo {
@@ -42,17 +46,16 @@ impl ShellInfo {
             panic!("Failed to retrieve terminal size");
         }
 
-        ShellInfo { cols: winsize.ws_col, lines: winsize.ws_row }
+        ShellInfo { cols: winsize.ws_col as usize, lines: winsize.ws_row as usize }
     }
 }
 
 #[derive(Default)]
-struct Window {
-    height: u16,            // The height of the window being rendered (this is not necessarily equal to the height of the terminal)
-    width: u16,             // The width of the window being rendered (this is not necessarily equal to the width of the terminal)
-    stride: usize,          // The stride of both color_buf and pix_buf
+pub struct Window {
+    height: usize,          // The height of the window being rendered (this is not necessarily equal to the height of the terminal)
+    width: usize,           // The width of the window being rendered (this is not necessarily equal to the width of the terminal)
     color_buf: Vec<Color>,  // Buffer containing color data for each pixel in pix_buf
-    pix_buf: OsString,      // Buffer containing each glyph to be printed when rendering
+    pix_buf: String,        // Buffer containing each glyph to be printed when rendering
 }
 
 impl Window {
@@ -60,21 +63,64 @@ impl Window {
         Window {
             height: 25,
             width: 80,
-            stride: 0,
             color_buf: Vec::new(),
-            pix_buf: OsString::new() }
+            pix_buf: String::new()
+        }
     }
 
-    fn clear() {
+    fn clear(&mut self) {
         // TODO: Make constants and place in enum
         print!("\x1b[2J");      // Clear the screen
         print!("\x1b[H");       // Move cursor to position (0, 0)
         print!("\x1b[?25l");    // Hide cursor
+
+        self.color_buf.clear();
+        self.pix_buf.clear();
     }
 
-    // TODO: Take in tile_atlas, actors, window
-    fn render_frame(&self) {
-        Self::clear();
+    fn render_frame(&mut self, game: &mut Game) {
+        self.clear();
+
+        // Load sprites (TODO: Put into separate function)
+        // TODO: Make more idomatic by opening dir entry and reading each file from there using iterator
+        let sprite_dir = env!("CARGO_MANIFEST_DIR").to_owned() + "/assets/sprites/";
+        let ss_mushroom = "mushroom.txt";
+        let full_path = OsString::from(sprite_dir + ss_mushroom);
+        let mushroom_sprite = Sprite::new(game, PathBuf::from(full_path), 255);
+
+        let mushroom_actor = Actor::new(game, 0.0, 0.0, &mushroom_sprite);
+
+        let screen_area = (self.width + 1) * self.height; // Add 1 to make room for newlines
+        // TODO: Error handling
+        self.pix_buf.reserve_exact(screen_area);
+        dbg!(&self.pix_buf.capacity());
+
+        while self.pix_buf.len() != self.pix_buf.capacity() {
+            self.pix_buf.push(' ');
+        }
+
+        let sprite_offset = ((mushroom_actor.y_pos.round() * self.width as f32) + mushroom_actor.x_pos.round()) as usize;
+        for tile_id in &mushroom_actor.sprite.tile_ids {
+            // TODO: This is assuming TILE_AREA = 4. Make to be dynamic
+            let mut pixel = game.tile_atlas[&tile_id].pix_buf[0];
+            self.pix_buf.insert(sprite_offset, pixel as char);
+
+            pixel = game.tile_atlas[&tile_id].pix_buf[1];
+            self.pix_buf.insert(sprite_offset + 1, pixel as char);
+
+            pixel = game.tile_atlas[&tile_id].pix_buf[2];
+            self.pix_buf.insert(sprite_offset + self.width, pixel as char);
+
+            pixel = game.tile_atlas[&tile_id].pix_buf[3];
+            self.pix_buf.insert(sprite_offset + self.width + 1, pixel as char);
+        }
+
+        // Insert newlines at end of screen
+        for idx in (self.width..screen_area).step_by(self.width) {
+            self.pix_buf.insert(idx, '\n');
+        }
+
+        print!("{}", &self.pix_buf);
 
         /*
         let col_pix_pairs: Vec<(Color, u8)> = ;
@@ -93,7 +139,7 @@ fn main() -> ! {
     println!("cols: {} lines: {}", shell_info.cols, shell_info.lines);
 
     // Create a new window
-    let win = Window::default();
+    let mut win = Window::default();
     if win.height > shell_info.lines {
         panic!("Window is too small");
     }
@@ -102,24 +148,10 @@ fn main() -> ! {
     let mut game = Game {
         tile_atlas: HashMap::new(),
         next_tile_id: 0,
-        next_sprite_id: 0,
-
-        fn_on_start: Box::new(|| {
-            println!("Game starting...");
-        }),
-        fn_on_update: Box::new(move |timeElapsed| {
-            win.render_frame();
-        })
+        next_actor_id: 0,
     };
 
-    // Load sprites (TODO: Put into separate function)
-    // TODO: Make more idomatic by opening dir entry and reading each file from there using iterator
-    let sprite_dir = env!("CARGO_MANIFEST_DIR").to_owned() + "/assets/sprites/";
-    let ss_mushroom = "mushroom.txt";
-    let full_path = OsString::from(sprite_dir + ss_mushroom);
-    let mushroom_sprite = Sprite::new(&mut game, PathBuf::from(full_path), 255);
-
-    //println!("{:#?}", game);
+    println!("{:#?}", game);
 
     //let mut signals = Signals::new(&[SIGWINCH])?;
     //thread::spawn(move || {
@@ -154,7 +186,8 @@ fn main() -> ! {
     });
 
     // Game start
-    game.on_start();
+    Game::on_start(&mut game);
+    Game::on_update(&mut game, &mut win, Rc::new(0.0));
 
     // Game loop
     loop {
@@ -174,8 +207,9 @@ fn main() -> ! {
 
         //game.on_update();
         // TODO:
-        // for actor in actors {
-        //    actor.on_update();
-        // }
+        // let sprites = Sprite::load_sprite_sheets() // Don't need IDs - just pass to Actor::new()
+        // let actors = Actor::load_actors() // Loads from level data file, IDs are static
+        // let render_sprite_batch = sprites.filter(|sprite| { sprite.x > 0 && sprite.x <
+        //      win.width ... })
     }
 }
