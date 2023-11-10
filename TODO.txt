@@ -1,0 +1,11 @@
+game.on_start() {
+   let sprites = Sprite::load_sprite_sheets(); // Actor holds read-only reference to sprite
+   let actors = Actor::load_actors(); // Loads from level data file
+}
+
+game.on_update() {
+   let render_batch = actors.filter(|actor| {
+      actor.x_pos >= 0 && actor.x_pos < win.width &&
+      actor.y_pos >= 0 && actor.y_pos < win.height
+   }).collect();
+}

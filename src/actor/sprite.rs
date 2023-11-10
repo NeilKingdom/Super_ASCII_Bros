@@ -68,28 +68,32 @@ impl StringExtensions for String {
 
 #[derive(Default, Debug)]
 pub struct Sprite {
-    id: Ident,                  // The sprite's unique identifier
-    file_handle: PathBuf,       // The path at which to find the sprite data
+    pub r#type: EntityType,     // Used to bind the sprite to an actor
+    file_handle: PathBuf,       // The path at which to find the sprite sheet
+    pub width: usize,           // Width of the sprite
+    pub height: usize,          // Height of the sprite
     pub tile_ids: Vec<Ident>,   // A vector of Tile IDs ordered from left to right, top to bottom
-    pub z_order: u8             // The z layer priority of the sprite when rendered
+    pub z_order: u8             // The z-layer priority of the sprite when rendered
 }
 
 impl Sprite {
     fn default(game: &mut Game) -> Self {
         Sprite {
-            // TODO: Only increment if actually a unique sprite
-            id: { let tmp = game.next_actor_id; game.next_actor_id += 1; tmp },
+            r#type: EntityType::None,
             file_handle: PathBuf::new(),
+            width: 0,
+            height: 0,
             tile_ids: Vec::new(),
             z_order: 0
         }
     }
 
     fn validate(&self) -> Result<(), String> {
-        // Sprite tile data size should be a perfect square and multiple of TILE_AREA
+        // Sprite tile data size should be a perfect square and multiple of TILE_AREA and > 0
         if self.tile_ids.len() == 0 ||
            (self.tile_ids.len() as f64).sqrt() % (TILE_AREA as f64) != 0.0 {
-            Result::Err(format!("Sprite {}'s tile data is of an invalid size ({})", self.id, self.tile_ids.len()))
+            // TODO: In error string include the sprite type
+            Result::Err(format!("Sprite's tile data is of an invalid size ({})", self.tile_ids.len()))
         } else {
             Result::Ok(())
         }
@@ -97,7 +101,6 @@ impl Sprite {
 
     fn load_raster_from_file(file_handle: &PathBuf) -> Result<String, Box<dyn Error>> {
         let pix_buf = fs::read_to_string(file_handle.as_path())?.replace("@", " ");
-        println!("{}", pix_buf);
         Ok(pix_buf)
      }
 
@@ -105,15 +108,15 @@ impl Sprite {
         let pix_buf = Self::load_raster_from_file(&file_handle)
             .expect("Failed to load sprite data from file");
 
+        // TODO: Set width/height
+
         let mut sprite: Sprite = Sprite::default(game);
         sprite.file_handle = file_handle;
         sprite.tile_ids = pix_buf.as_tile_ids(game);
         sprite.z_order = z_order;
 
-        let result = sprite.validate();
-        match result {
-            Result::Err(message) => { panic!("{}", message); },
-            _ => ()
+        if let Result::Err(message) = sprite.validate() {
+            panic!("{}", message);
         }
 
         sprite

@@ -5,22 +5,16 @@ pub mod game;
 pub mod actor;
 
 use crate::game::*;
-use crate::actor::Actor;
-use crate::ascii_bros::Color;
-use crate::actor::sprite::tile::TILE_AREA;
+use crate::ascii_bros::*;
+use crate::actor::{Actor, sprite::Sprite};
 
 use crate::libc::STDIN_FILENO;
 use crate::libc::ioctl;
-use crate::actor::sprite::Sprite;
 
-//use signal_hook::{consts::SIGWINCH, iterator::Signals};
 use termios::{Termios, TCSANOW, ECHO, ICANON, tcsetattr};
+use std::time::{Duration, SystemTime};
 use std::collections::HashMap;
-use std::ffi::OsString;
-use std::path::PathBuf;
-use std::mem::size_of;
 use std::thread;
-use std::rc::Rc;
 use std::io::{self, Read};
 use nix::libc;
 use std::sync::mpsc::channel;
@@ -52,10 +46,11 @@ impl ShellInfo {
 
 #[derive(Default)]
 pub struct Window {
-    height: usize,          // The height of the window being rendered (this is not necessarily equal to the height of the terminal)
-    width: usize,           // The width of the window being rendered (this is not necessarily equal to the width of the terminal)
-    color_buf: Vec<Color>,  // Buffer containing color data for each pixel in pix_buf
-    pix_buf: String,        // Buffer containing each glyph to be printed when rendering
+    height: usize,              // The height of the window being rendered (this is not necessarily equal to the height of the terminal)
+    width: usize,               // The width of the window being rendered (this is not necessarily equal to the width of the terminal)
+    color_buf: Vec<Color>,      // Buffer containing color data for each pixel in pix_buf
+    fg_frame_buf: Vec<char>,    // Buffer containing each glyph to be printed when rendering the foreground
+    bg_frame_buf: Vec<char>,    // Buffer containing each glyph to be printed when rendering the background
 }
 
 impl Window {
@@ -64,63 +59,67 @@ impl Window {
             height: 25,
             width: 80,
             color_buf: Vec::new(),
-            pix_buf: String::new()
+            fg_frame_buf: Vec::new(),
+            bg_frame_buf: Vec::new(),
         }
     }
 
     fn clear(&mut self) {
-        // TODO: Make constants and place in enum
-        print!("\x1b[2J");      // Clear the screen
-        print!("\x1b[H");       // Move cursor to position (0, 0)
-        print!("\x1b[?25l");    // Hide cursor
+        print!("{}", SCRN_CLR);       // Clear the screen
+        print!("{}", CUR_POS_RST);    // Move cursor to position (0, 0)
+        print!("{}", CUR_HIDE);       // Hide cursor
+        print!("{}", LN_WRP_OFF);     // Disable line wrap
 
         self.color_buf.clear();
-        self.pix_buf.clear();
+        self.fg_frame_buf.clear();
     }
 
     fn render_frame(&mut self, game: &mut Game) {
         self.clear();
 
-        // Load sprites (TODO: Put into separate function)
-        // TODO: Make more idomatic by opening dir entry and reading each file from there using iterator
-        let sprite_dir = env!("CARGO_MANIFEST_DIR").to_owned() + "/assets/sprites/";
-        let ss_mushroom = "mushroom.txt";
-        let full_path = OsString::from(sprite_dir + ss_mushroom);
-        let mushroom_sprite = Sprite::new(game, PathBuf::from(full_path), 255);
-
-        let mushroom_actor = Actor::new(game, 0.0, 0.0, &mushroom_sprite);
-
-        let screen_area = (self.width + 1) * self.height; // Add 1 to make room for newlines
+        let screen_area = self.width * self.height;
         // TODO: Error handling
-        self.pix_buf.reserve_exact(screen_area);
-        dbg!(&self.pix_buf.capacity());
-
-        while self.pix_buf.len() != self.pix_buf.capacity() {
-            self.pix_buf.push(' ');
+        self.fg_frame_buf.reserve_exact(screen_area);
+        while self.fg_frame_buf.len() != self.fg_frame_buf.capacity() {
+            self.fg_frame_buf.push(' ');
         }
 
-        let sprite_offset = ((mushroom_actor.y_pos.round() * self.width as f32) + mushroom_actor.x_pos.round()) as usize;
-        for tile_id in &mushroom_actor.sprite.tile_ids {
-            // TODO: This is assuming TILE_AREA = 4. Make to be dynamic
-            let mut pixel = game.tile_atlas[&tile_id].pix_buf[0];
-            self.pix_buf.insert(sprite_offset, pixel as char);
+        for actor in &game.actor_list {
+            let sprite_y_offset = actor.y_pos.round() as usize;
+            let sprite_x_offset = actor.x_pos.round() as usize;
+            let sprite_offset = (sprite_y_offset * self.width) + sprite_x_offset; // Top-left corner of sprite
+            let mut draw_pos = sprite_offset;
 
-            pixel = game.tile_atlas[&tile_id].pix_buf[1];
-            self.pix_buf.insert(sprite_offset + 1, pixel as char);
+            /*** Render frame buffer ***/
 
-            pixel = game.tile_atlas[&tile_id].pix_buf[2];
-            self.pix_buf.insert(sprite_offset + self.width, pixel as char);
+            for tile_id in &actor.sprite.tile_ids {
+                // TODO: This is assuming TILE_AREA = 4. Make to be dynamic
+                let mut pixel = game.tile_atlas[&tile_id].pix_buf[0];
+                self.fg_frame_buf[draw_pos] = pixel as char;
 
-            pixel = game.tile_atlas[&tile_id].pix_buf[3];
-            self.pix_buf.insert(sprite_offset + self.width + 1, pixel as char);
+                pixel = game.tile_atlas[&tile_id].pix_buf[1];
+                self.fg_frame_buf[draw_pos + 1] = pixel as char;
+
+                pixel = game.tile_atlas[&tile_id].pix_buf[2];
+                self.fg_frame_buf[draw_pos + self.width] = pixel as char;
+
+                pixel = game.tile_atlas[&tile_id].pix_buf[3];
+                self.fg_frame_buf[draw_pos + self.width + 1] = pixel as char;
+
+                draw_pos += 2;
+
+                if (draw_pos - sprite_offset) % 16 == 0 {
+                    draw_pos += (self.width * 2) - 16;
+                }
+            }
         }
 
-        // Insert newlines at end of screen
+        // Insert newlines at end of screen boundary
         for idx in (self.width..screen_area).step_by(self.width) {
-            self.pix_buf.insert(idx, '\n');
+            self.fg_frame_buf[idx - 1] = '\n';
         }
 
-        print!("{}", &self.pix_buf);
+        /*** Render pixel attributes ***/
 
         /*
         let col_pix_pairs: Vec<(Color, u8)> = ;
@@ -128,15 +127,16 @@ impl Window {
             print!("\x1b[0;{}m", color, pixel); // Reset attributes before printing color attribute and pixel glyph
         }
         */
+
+        // TODO: Clone not ideal
+        let output_str: String = self.fg_frame_buf.clone().into_iter().collect();
+        print!("{}", output_str);
     }
 }
-
-struct KeyPress(char);
 
 fn main() -> ! {
     // Get $COLUMNS and $ROWS
     let shell_info: ShellInfo = ShellInfo::default();
-    println!("cols: {} lines: {}", shell_info.cols, shell_info.lines);
 
     // Create a new window
     let mut win = Window::default();
@@ -144,22 +144,18 @@ fn main() -> ! {
         panic!("Window is too small");
     }
 
+    win.width = shell_info.cols;
+    win.height = shell_info.lines;
+
     // Create a game object
     let mut game = Game {
         tile_atlas: HashMap::new(),
+        sprite_list: Vec::new(),
+        actor_list: Vec::new(),
         next_tile_id: 0,
-        next_actor_id: 0,
     };
 
-    println!("{:#?}", game);
-
-    //let mut signals = Signals::new(&[SIGWINCH])?;
-    //thread::spawn(move || {
-    //    for _sig in signals.forever() {
-    //        todo!();
-    //    }
-    //});
-
+    // Create a transmit/receive buffer for keyboard input
     let (tx, rx) = channel();
 
     // Get the current terminal settings
@@ -185,31 +181,45 @@ fn main() -> ! {
         }
     });
 
-    // Game start
+    /*** Game start ***/
+
     Game::on_start(&mut game);
-    Game::on_update(&mut game, &mut win, Rc::new(0.0));
+    let mut delta_time = 0.0;
 
-    // Game loop
+    /*** Game loop ***/
+
     loop {
-        // Receive user input from channel
-        let c = KeyPress(rx.recv().expect("recv failed"));
-        match c {
-            KeyPress(' ') => println!("jump"),
-            KeyPress('a') => println!("left"),
-            KeyPress('d') => println!("right"),
-            _ => ()
+        let delta_time_start = SystemTime::now();
+
+        // Receive user input from channel (non-blocking)
+        match rx.try_recv() {
+            Ok(c) => {
+                match KeyPress(c) {
+                    KeyPress(' ') => println!("jump"),
+                    KeyPress('a') => println!("left"),
+                    KeyPress('d') => println!("right"),
+                    // TODO: Remove (this is only for debug purposes)
+                    KeyPress('q') => {
+                        // Exit raw mode
+                        tcsetattr(0, TCSANOW, &orig_termios).expect("tcsetattr failed");
+                    },
+                    _ =>  {}
+                }
+            },
+            Err(_) =>  {}
         }
 
-        if c.0 == 'q' {
-            // Exit raw mode
-            tcsetattr(0, TCSANOW, &orig_termios).expect("tcsetattr failed");
-        }
+        // Call Game's on-update function to render the frame and so-forth
+        Game::on_update(&mut game, &mut win, &delta_time);
 
-        //game.on_update();
-        // TODO:
-        // let sprites = Sprite::load_sprite_sheets() // Don't need IDs - just pass to Actor::new()
-        // let actors = Actor::load_actors() // Loads from level data file, IDs are static
-        // let render_sprite_batch = sprites.filter(|sprite| { sprite.x > 0 && sprite.x <
-        //      win.width ... })
+        // Calculate how long everything took for this frame
+        let delta_time_end = SystemTime::now();
+        delta_time = delta_time_end.duration_since(delta_time_start).unwrap().as_millis() as f32;
+
+        // Sleep for any spare time
+        let frame_delta = ((SECOND_IN_MILLIS / TARGET_FPS) - delta_time) as u32;
+        if frame_delta > 0 {
+            thread::sleep(Duration::new(0, frame_delta));
+        }
     }
 }

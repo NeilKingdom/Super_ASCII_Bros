@@ -1,55 +1,29 @@
 pub mod sprite;
 
-use crate::{Window, Sprite};
+use crate::Sprite;
 use crate::game::*;
 use crate::ascii_bros::*;
 
-use std::rc::Rc;
-
-enum ActorType {
-    Mario,
-    Bowser,
-    Goomba,
-    Koopa,
-    Parakoopa,
-    Pirhana,
-    Lakitu,
-    Spiney,
-    Beetle,
-    BulletBill,
-    HammerBro,
-    FireBar,
-}
-
 pub struct Actor<'a> {
-    pub id: Ident,
-    pub x_pos: f32,
-    pub y_pos: f32,
-    pub sprite: &'a Sprite,
+    pub r#type: EntityType,     // The type of actor. Multiple actors may share the same type.
+    pub x_pos: f32,             // The x position of the actor in sub-pixels
+    pub y_pos: f32,             // The y position of the actor in sub-pixels
+    pub sprite: &'a Sprite,     // A read-only reference to the actor's associated sprite
 }
 
 impl<'a> Actor<'a> {
     pub fn new(
         game: &Game,
+        r#type: EntityType,
         x_pos: f32,
         y_pos: f32,
         sprite: &'a Sprite,
     ) -> Self {
         Actor {
-            id: game.next_actor_id,
+            r#type,
             x_pos,
             y_pos,
             sprite,
         }
-    }
-}
-
-impl<'a> GameLogic for Actor<'a> {
-    fn on_start(obj: &mut Self) {
-        todo!();
-    }
-
-    fn on_update(obj: &mut Self, win: &mut Window, time_elapsed: Rc<f64>) {
-        todo!();
     }
 }
