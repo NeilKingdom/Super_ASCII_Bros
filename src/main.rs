@@ -144,13 +144,12 @@ fn main() -> ! {
         panic!("Window is too small");
     }
 
-    win.width = shell_info.cols;
-    win.height = shell_info.lines;
+    //win.width = shell_info.cols;
+    //win.height = shell_info.lines;
 
     // Create a game object
     let mut game = Game {
         tile_atlas: HashMap::new(),
-        sprite_list: Vec::new(),
         actor_list: Vec::new(),
         next_tile_id: 0,
     };

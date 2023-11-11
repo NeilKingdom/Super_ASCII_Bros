@@ -77,7 +77,7 @@ pub struct Sprite {
 }
 
 impl Sprite {
-    fn default(game: &mut Game) -> Self {
+    fn default() -> Self {
         Sprite {
             r#type: EntityType::None,
             file_handle: PathBuf::new(),
@@ -110,7 +110,7 @@ impl Sprite {
 
         // TODO: Set width/height
 
-        let mut sprite: Sprite = Sprite::default(game);
+        let mut sprite: Sprite = Sprite::default();
         sprite.file_handle = file_handle;
         sprite.tile_ids = pix_buf.as_tile_ids(game);
         sprite.z_order = z_order;
