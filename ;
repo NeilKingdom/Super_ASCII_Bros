@@ -1,14 +1,16 @@
 use crate::Window;
+use crate::actor::{Actor, MushroomActions};
 use crate::ascii_bros::*;
-use crate::actor::*;
-use crate::actor::sprite::tile::{Tile, PixBuf};
 use crate::actor::sprite::Sprite;
+use crate::actor::sprite::tile::{Tile, PixBuf};
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use itertools::Itertools;
 use std::{fmt,fs};
+use std::rc::Rc;
+use std::cell::RefCell;
 
 // Handles game logic e.g. timers, physics, etc.
 pub struct Game {
@@ -41,7 +43,7 @@ impl Game {
 
                     // TODO: Somehow include entity type information (maybe using dict?)
                     let sprite = Sprite::new(self, PathBuf::from(full_path), 255);
-                    let actor = Actor::new(ActorProps::new(5.0, 5.0, sprite), Box::new(MushroomActions));
+                    let actor = Actor::new(EntityType::Mushroom, 5.0, 5.0, sprite, Box::new(MushroomActions));
                     self.actor_list.push(actor);
                 }
             }
@@ -51,14 +53,8 @@ impl Game {
     }
 
     pub fn on_update(&mut self, win: &mut Window, delta_time: &f32) {
-        for actor in &mut self.actor_list {
-            actor.actions.update_pos(&mut actor.props, &delta_time);
-            // TODO: invoke additional functions that are exclusive to specific Action types
-            //match type_of(&actor.actions) {
-            //    MushroomActions => {
-            //    }
-            //    _ => {}
-            //}
+        for mut actor in &self.actor_list {
+            Actor::update(Rc::new(RefCell::new(*actor)));
         }
         win.render_frame(self);
     }

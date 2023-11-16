@@ -15,7 +15,7 @@ use termios::{Termios, TCSANOW, ECHO, ICANON, tcsetattr};
 use std::time::{Duration, SystemTime};
 use std::collections::HashMap;
 use std::thread;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use nix::libc;
 use std::sync::mpsc::channel;
 
@@ -84,15 +84,26 @@ impl Window {
             self.fg_frame_buf.push(' ');
         }
 
-        for actor in &game.actor_list {
-            let sprite_y_offset = actor.y_pos.round() as usize;
-            let sprite_x_offset = actor.x_pos.round() as usize;
+        let render_batch = &game.actor_list
+            .iter()
+            .filter(|actor| { 
+                (actor.props.y_pos.round() as usize) < self.height &&
+                actor.props.y_pos >= 0.0 &&
+                (actor.props.x_pos.round() as usize) < self.width &&
+                actor.props.x_pos >= 0.0
+            })
+            .map(|v| *v)
+            .collect::<Vec<Actor>>();
+
+        for actor in render_batch {
+            let sprite_y_offset = actor.props.y_pos.round() as usize;
+            let sprite_x_offset = actor.props.x_pos.round() as usize;
             let sprite_offset = (sprite_y_offset * self.width) + sprite_x_offset; // Top-left corner of sprite
             let mut draw_pos = sprite_offset;
 
             /*** Render frame buffer ***/
 
-            for tile_id in &actor.sprite.tile_ids {
+            for tile_id in &actor.props.sprite.tile_ids {
                 // TODO: This is assuming TILE_AREA = 4. Make to be dynamic
                 let mut pixel = game.tile_atlas[&tile_id].pix_buf[0];
                 self.fg_frame_buf[draw_pos] = pixel as char;
@@ -128,8 +139,9 @@ impl Window {
         }
         */
 
-        // TODO: Clone not ideal
-        let output_str: String = self.fg_frame_buf.clone().into_iter().collect();
+        // TODO: Can we implement Display for Vec<char>?
+        // Convert Vec<char> to string
+        let output_str = self.fg_frame_buf.clone().into_iter().collect::<String>();
         print!("{}", output_str);
     }
 }
