@@ -11,7 +11,7 @@ pub const CUR_HIDE: &str    = "\x1b[?251";
 pub const LN_WRP_OFF: &str  = "\x1b[?71";
 
 pub const SECOND_IN_MILLIS: f32 = 1000.0;
-pub const TARGET_FPS: f32 = 10.0;
+pub const TARGET_FPS: f32 = 1.0;
 
 // Binds actors to their respective sprites
 #[derive(Debug, Default)]

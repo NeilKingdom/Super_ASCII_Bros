@@ -84,16 +84,16 @@ impl Window {
             self.fg_frame_buf.push(' ');
         }
 
-        let render_batch = &game.actor_list
-            .iter()
-            .filter(|actor| { 
-                (actor.props.y_pos.round() as usize) < self.height &&
-                actor.props.y_pos >= 0.0 &&
-                (actor.props.x_pos.round() as usize) < self.width &&
-                actor.props.x_pos >= 0.0
-            })
-            .map(|v| *v)
-            .collect::<Vec<Actor>>();
+        let render_batch = &game.actor_list;
+        //    .iter()
+        //    .filter(|actor| { 
+        //        (actor.props.y_pos.round() as usize) < self.height &&
+        //        actor.props.y_pos >= 0.0 &&
+        //        (actor.props.x_pos.round() as usize) < self.width &&
+        //        actor.props.x_pos >= 0.0
+        //    })
+        //    .map(|v| *v)
+        //    .collect::<Vec<Actor>>();
 
         for actor in render_batch {
             let sprite_y_offset = actor.props.y_pos.round() as usize;

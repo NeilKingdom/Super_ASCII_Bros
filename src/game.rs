@@ -29,7 +29,7 @@ impl Game {
 
         /*** Load sprites and map to corresponding actors ***/
 
-        let sprite_dir = &(env!("CARGO_MANIFEST_DIR").to_owned() + "/assets/sprites/");
+        let sprite_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/sprites/");
         if let Ok(entries) = fs::read_dir(sprite_dir) {
             for entry in entries {
                 if let Ok(entry) = entry {
