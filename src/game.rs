@@ -50,7 +50,7 @@ impl Game {
         }
     }
 
-    pub fn on_update(&mut self, win: &mut Window, delta_time: &f32) {
+    pub fn on_update(&mut self, win: &mut Window, delta_time: &u128) {
         for actor in &mut self.actor_list {
             actor.actions.update_pos(&mut actor.props, &delta_time);
             // TODO: invoke additional functions that are exclusive to specific Action types

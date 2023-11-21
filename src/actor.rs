@@ -4,7 +4,7 @@ use crate::Sprite;
 
 // Basic behaviors shared by all actors
 pub trait ActorActions {
-    fn update_pos(&self, actor_props: &mut ActorProps, delta_time: &f32);
+    fn update_pos(&self, actor_props: &mut ActorProps, delta_time: &u128);
 }
 
 // Basic properties shared by all actors
@@ -23,8 +23,8 @@ impl ActorProps {
 // Actions for each type of actor
 pub struct MushroomActions;
 impl ActorActions for MushroomActions {
-    fn update_pos(&self, actor_props: &mut ActorProps, delta_time: &f32) {
-        actor_props.x_pos += 0.1 * delta_time;
+    fn update_pos(&self, actor_props: &mut ActorProps, delta_time: &u128) {
+        actor_props.x_pos += 0.1; // TODO: * delta_time;
     }
 }
 
