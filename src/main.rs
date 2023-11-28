@@ -4,10 +4,11 @@ pub mod ascii_bros;
 pub mod game;
 pub mod actor;
 
-use crate::game::*;
-use crate::ascii_bros::*;
-use crate::actor::{Actor, sprite::Sprite};
+use game::*;
+use ascii_bros::*;
+use actor::{Actor, sprite::Sprite};
 
+use actor::sprite::tile::TILE_AREA;
 use crossterm::{execute, QueueableCommand};
 use crossterm::cursor::{self, Hide, MoveTo};
 use crossterm::event::KeyModifiers;
@@ -56,45 +57,53 @@ impl Window {
     fn render_frame(&mut self, game: &mut Game) {
         let _ = self.clear();
 
-        let render_batch = &game.actor_list;
-        //    .iter()
-        //    .filter(|actor| { 
-        //        (actor.props.y_pos.round() as usize) < self.height &&
-        //        actor.props.y_pos >= 0.0 &&
-        //        (actor.props.x_pos.round() as usize) < self.width &&
-        //        actor.props.x_pos >= 0.0
-        //    })
-        //    .map(|v| *v)
-        //    .collect::<Vec<Actor>>();
+        let render_batch = &game.actor_list
+            .iter()
+            .filter(|actor| { 
+                (actor.props.y_pos.round() as u16) < self.height &&
+                actor.props.y_pos >= 0.0 &&
+                (actor.props.x_pos.round() as u16) < self.width &&
+                actor.props.x_pos >= 0.0
+            })
+            .collect::<Vec<&Actor>>();
         //
-        //    Then order by y pos, then x pos
+        // ^^ Then order by y pos, then x pos
+        
+        let stride = (TILE_AREA as f64).sqrt() as usize;
 
         for actor in render_batch {
-            let sprite_x_origin = actor.props.x_pos.round() as u16;
-            let sprite_y_origin = actor.props.y_pos.round() as u16;
-            let (mut x_offset, mut y_offset) = (sprite_x_origin, sprite_y_origin);
+            let sprite_x_origin = actor.props.x_pos.round() as usize;
+            let sprite_y_origin = actor.props.y_pos.round() as usize;
 
-            /*** Render frame buffer ***/
+            let mut tile_ids_iter = actor.props.sprite.tile_ids.iter();
 
-            for tile_id in &actor.props.sprite.tile_ids {
-                // TODO: This is assuming TILE_AREA = 4. Make to be dynamic
-                self.stdout_hndl.queue(MoveTo(x_offset, y_offset)).unwrap();
-                self.stdout_hndl.queue(Print(game.tile_atlas[&tile_id].pix_buf[0] as char)).unwrap();
+            for y_offset in (sprite_y_origin..(sprite_y_origin + actor.props.sprite.height)).step_by(stride) {
+                for x_offset in (sprite_x_origin..(sprite_x_origin + actor.props.sprite.width)).step_by(stride) {
+                    // TODO: This is assuming TILE_AREA = 4. Make to be dynamic
 
-                self.stdout_hndl.queue(MoveTo(x_offset + 1, y_offset)).unwrap();
-                self.stdout_hndl.queue(Print(game.tile_atlas[&tile_id].pix_buf[1] as char)).unwrap();
+                    let curr_tile_id = &tile_ids_iter.next().expect("Failed to get next tile id");
+                    let x_offset: u16 = x_offset.try_into().unwrap();
+                    let y_offset: u16 = y_offset.try_into().unwrap();
 
-                self.stdout_hndl.queue(MoveTo(x_offset, y_offset + 1)).unwrap();
-                self.stdout_hndl.queue(Print(game.tile_atlas[&tile_id].pix_buf[2] as char)).unwrap();
+                    self.stdout_hndl.queue(MoveTo(x_offset, y_offset)).unwrap();
+                    self.stdout_hndl.queue(
+                        Print(game.tile_atlas[curr_tile_id].pix_buf[0] as char)
+                    ).unwrap();
 
-                self.stdout_hndl.queue(MoveTo(x_offset + 1, y_offset + 1)).unwrap();
-                self.stdout_hndl.queue(Print(game.tile_atlas[&tile_id].pix_buf[3] as char)).unwrap();
+                    self.stdout_hndl.queue(MoveTo(x_offset + 1, y_offset)).unwrap();
+                    self.stdout_hndl.queue(
+                        Print(game.tile_atlas[curr_tile_id].pix_buf[1] as char)
+                    ).unwrap();
 
-                x_offset += 2;
+                    self.stdout_hndl.queue(MoveTo(x_offset, y_offset + 1)).unwrap();
+                    self.stdout_hndl.queue(
+                        Print(game.tile_atlas[curr_tile_id].pix_buf[2] as char)
+                    ).unwrap();
 
-                if (x_offset - sprite_x_origin) % 16 == 0 {
-                    y_offset += 2;
-                    x_offset = sprite_x_origin;
+                    self.stdout_hndl.queue(MoveTo(x_offset + 1, y_offset + 1)).unwrap();
+                    self.stdout_hndl.queue(
+                        Print(game.tile_atlas[curr_tile_id].pix_buf[3] as char)
+                    ).unwrap();
                 }
             }
         }
@@ -104,15 +113,6 @@ impl Window {
             self.stdout_hndl.queue(MoveTo(self.width - 2, row)).unwrap();
             self.stdout_hndl.queue(Print('\n')).unwrap();
         } 
-
-        /*** Render pixel attributes ***/
-
-        /*
-        let col_pix_pairs: Vec<(Color, u8)> = ;
-        for (color, pixel) in col_pix_pairs.iter() {
-            print!("\x1b[0;{}m", color, pixel); // Reset attributes before printing color attribute and pixel glyph
-        }
-        */
 
         self.stdout_hndl.flush().unwrap();
     }

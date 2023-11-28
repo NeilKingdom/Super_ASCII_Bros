@@ -6,41 +6,69 @@ use crate::actor::sprite::tile::{Tile, TILE_AREA};
 
 use std::error::Error;
 use std::path::PathBuf;
-use std::fs;
+use std::fs::File;
+use std::io::{self, BufRead};
 
-trait StringExtensions {
-    fn as_tile_ids(&self, game: &mut Game) -> Vec<Ident>;
+#[derive(Default, Debug)]
+pub struct Sprite {
+    pub r#type: EntityType,     // Used to bind the sprite to an actor
+    file_handle: PathBuf,       // The path at which to find the sprite sheet
+    pub width: usize,           // Width of the sprite
+    pub height: usize,          // Height of the sprite
+    pub tile_ids: Vec<Ident>,   // A vector of Tile IDs ordered from left to right, top to bottom
+    pub z_order: u8             // The z-layer priority of the sprite when rendered
 }
 
-// TODO: Add tests for this function
-impl StringExtensions for String {
-    fn as_tile_ids(&self, game: &mut Game) -> Vec<Ident> {
-        let lines: Vec<&str> = self.split("\n").collect();
-        let len = self.replace("\n", "").len();
+impl Sprite {
+    pub fn new(game: &mut Game, file_handle: PathBuf, z_order: u8) -> Self {
+        let mut sprite: Sprite = Sprite::default();
+        let sprite_as_lines = Self::load_raster_from_file(&file_handle)
+            .expect("Failed to load sprite data from file");
 
-        let mut pix_bufs: Vec<Tile> = vec![Tile::default(); len / TILE_AREA];
+        sprite.width = sprite_as_lines.get(0).unwrap().len();
+        sprite.height = sprite_as_lines.len();
+
+        sprite.tile_ids = Sprite::as_tile_ids(game, &sprite_as_lines, sprite.width, sprite.height);
+        sprite.file_handle = file_handle;
+        sprite.z_order = z_order;
+
+        if let Result::Err(message) = sprite.validate() {
+            panic!("{}", message);
+        }
+
+        sprite
+    }
+
+    fn as_tile_ids(
+        game: &mut Game, 
+        sprite_as_lines: &Vec<String>, 
+        sprite_width: usize, 
+        sprite_height: usize
+    ) -> Vec<Ident> {
+        let sprite_size = sprite_width * sprite_height;
+
+        let mut sprite_tiles: Vec<Tile> = vec![Tile::default(); sprite_size / TILE_AREA];
         let mut tile_ids: Vec<Ident> = Vec::new();
 
         let (mut prev_pixel_idx, mut pixel_idx, mut tile_idx): (usize, usize, usize);
         let stride = (TILE_AREA as f64).sqrt() as usize;
 
-        for y in 0..(lines.len() - 1) {
+        for y in 0..sprite_height {
             prev_pixel_idx = (y * stride) % TILE_AREA;
             pixel_idx = prev_pixel_idx;
 
-            for x in 0..(lines.len() - 1) {
-                tile_idx = ((y / stride) * (lines.len() / stride)) + (x / stride);
-                pix_bufs[tile_idx].pix_buf[pixel_idx] = lines[y].as_bytes()[x];
+            for x in 0..sprite_width {
+                tile_idx = ((y / stride) * (sprite_height / stride)) + (x / stride);
+                sprite_tiles[tile_idx].pix_buf[pixel_idx] = sprite_as_lines[y].as_bytes()[x];
 
                 if pixel_idx == (TILE_AREA - 1) {
                     // Only insert if pix_buf is unique
-                    if !game.tile_atlas_contains(&pix_bufs[tile_idx].pix_buf) {
+                    if !game.tile_atlas_contains(&sprite_tiles[tile_idx].pix_buf) {
                         let tile = Tile::new(
-                            { let tmp = game.next_tile_id; game.next_tile_id += 1; tmp },
-                            stride,
+                            game.tile_atlas.len() as Ident,
                             // TODO: Implement
                             [ Color(32); TILE_AREA ],
-                            pix_bufs[tile_idx].pix_buf
+                            sprite_tiles[tile_idx].pix_buf
                         );
 
                         game.tile_atlas.insert(tile.id, tile);
@@ -48,9 +76,13 @@ impl StringExtensions for String {
                     } else {
                         // If tile is not unique, find existing key
                         tile_ids.push(
-                            *game.tile_atlas.iter().find_map(|(k, v)|
-                                if v.pix_buf == pix_bufs[tile_idx].pix_buf { Some(k) } else { None }
-                            ).unwrap()
+                            *game.tile_atlas.iter().find_map(|(k, v)| {
+                                if v.pix_buf == sprite_tiles[tile_idx].pix_buf { 
+                                    Some(k) 
+                                } else { 
+                                    None 
+                                }
+                            }).unwrap()
                         );
                     }
                 }
@@ -64,62 +96,32 @@ impl StringExtensions for String {
 
         tile_ids
     }
-}
-
-#[derive(Default, Debug)]
-pub struct Sprite {
-    pub r#type: EntityType,     // Used to bind the sprite to an actor
-    file_handle: PathBuf,       // The path at which to find the sprite sheet
-    pub width: usize,           // Width of the sprite
-    pub height: usize,          // Height of the sprite
-    pub tile_ids: Vec<Ident>,   // A vector of Tile IDs ordered from left to right, top to bottom
-    pub z_order: u8             // The z-layer priority of the sprite when rendered
-}
-
-impl Sprite {
-    fn default() -> Self {
-        Sprite {
-            r#type: EntityType::None,
-            file_handle: PathBuf::new(),
-            width: 0,
-            height: 0,
-            tile_ids: Vec::new(),
-            z_order: 0
-        }
-    }
 
     fn validate(&self) -> Result<(), String> {
-        // Sprite tile data size should be a perfect square and multiple of TILE_AREA and > 0
-        if self.tile_ids.len() == 0 ||
-           (self.tile_ids.len() as f64).sqrt() % (TILE_AREA as f64) != 0.0 {
-            // TODO: In error string include the sprite type
-            Result::Err(format!("Sprite's tile data is of an invalid size ({})", self.tile_ids.len()))
+        let stride = (TILE_AREA as f64).sqrt() as usize;
+        if self.width % stride != 0 {
+            Result::Err(format!("Sprite's width ({}) is not a multiple of {}", self.width, stride))
+        } else if self.height % stride != 0 {
+            Result::Err(format!("Sprite's height ({}) is not a multiple of {}", self.height, stride))
         } else {
             Result::Ok(())
         }
     }
 
-    fn load_raster_from_file(file_handle: &PathBuf) -> Result<String, Box<dyn Error>> {
-        let pix_buf = fs::read_to_string(file_handle.as_path())?.replace("@", " ");
-        Ok(pix_buf)
-     }
+    fn load_raster_from_file(file_handle: &PathBuf) -> Result<Vec<String>, Box<dyn Error>> {
+        let mut sprite_as_lines = Vec::new();
+        if let Ok(file) = File::open(file_handle.as_path()) {
+            let reader = io::BufReader::new(file);
 
-    pub fn new(game: &mut Game, file_handle: PathBuf, z_order: u8) -> Self {
-        let pix_buf = Self::load_raster_from_file(&file_handle)
-            .expect("Failed to load sprite data from file");
-
-        // TODO: Set width/height
-
-        let mut sprite: Sprite = Sprite::default();
-        sprite.file_handle = file_handle;
-        sprite.tile_ids = pix_buf.as_tile_ids(game);
-        sprite.z_order = z_order;
-
-        if let Result::Err(message) = sprite.validate() {
-            panic!("{}", message);
+            // TODO: Error handling in closure
+            for line in reader.lines().map(
+                |line| String::from(line.unwrap().trim().replace("@", " "))
+            ) {
+                sprite_as_lines.push(line); 
+            }
         }
 
-        sprite
-    }
+        Ok(sprite_as_lines)
+     }
 }
 

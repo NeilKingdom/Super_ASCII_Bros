@@ -14,6 +14,7 @@ use std::{fmt,fs};
 pub struct Game {
     pub tile_atlas: HashMap<Ident, Tile>,
     pub actor_list: Vec<Actor>,
+    //pub level_list: Vec<Level>,
     pub next_tile_id: Ident,
 }
 
@@ -25,17 +26,25 @@ impl Game {
         false
     }
 
-    pub fn on_start(&mut self) {
+    fn load_lvl_data(&mut self) {
+        let level_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/levels/");
 
-        /*** Load sprites and map to corresponding actors ***/
+        if let Ok(entries) = fs::read_dir(level_dir) {
+            for entry in entries {
+                //let file_name = entry
+                todo!()
+            }
+        }
+    }
 
+    fn load_actors(&mut self) {
         let sprite_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/sprites/");
+
         if let Ok(entries) = fs::read_dir(sprite_dir) {
             for entry in entries {
                 if let Ok(entry) = entry {
                     let file_name = entry.file_name();
-                    // TODO: Remove
-                    if file_name.eq(&OsString::from("mario.txt")) { continue; }
+                    if file_name.eq("mario.txt") { continue; }
                     let file_name_str = file_name.to_str().expect("file name into str failed");
                     let full_path = OsString::from(sprite_dir.to_owned() + file_name_str);
 
@@ -48,6 +57,11 @@ impl Game {
         } else {
             println!("Error reading directory");
         }
+    }
+
+    pub fn on_start(&mut self) {
+        //self.load_lvl_data();
+        self.load_actors();
     }
 
     pub fn on_update(&mut self, win: &mut Window, delta_time: &u128) {

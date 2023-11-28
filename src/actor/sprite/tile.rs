@@ -54,7 +54,6 @@ impl IndexMut<usize> for PixBuf {
 #[derive(Default, Clone, Copy)]
 pub struct Tile {
     pub id: Ident,                      // The tile's unique identifier
-    pub stride: usize,                  // Stride for both color_buf and pix_buf
     pub color_buf: [Color; TILE_AREA],  // The color data corresponding to each pixel in the tile
     pub pix_buf: PixBuf,                // The "pixel" data i.e. sequence of characters
 }
@@ -62,11 +61,10 @@ pub struct Tile {
 impl Tile {
     pub fn new(
         id: Ident,
-        stride: usize,
         color_buf: [Color; TILE_AREA],
         pix_buf: PixBuf,
     ) -> Self {
-        Tile { id, stride, color_buf, pix_buf }
+        Tile { id, color_buf, pix_buf }
     }
 }
 
