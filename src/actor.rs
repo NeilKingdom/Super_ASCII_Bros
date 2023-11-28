@@ -28,6 +28,13 @@ impl ActorActions for MushroomActions {
     }
 }
 
+pub struct MarioActions;
+impl ActorActions for MarioActions {
+    fn update_pos(&self, actor_props: &mut ActorProps, delta_time: &u128) {
+        actor_props.x_pos += 0.2; // TODO: * delta_time;
+    }
+}
+
 // The actual actor type
 pub struct Actor {
     pub props: ActorProps,

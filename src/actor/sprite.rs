@@ -25,7 +25,7 @@ impl Sprite {
         let sprite_as_lines = Self::load_raster_from_file(&file_handle)
             .expect("Failed to load sprite data from file");
 
-        sprite.width = sprite_as_lines.get(0).unwrap().len();
+        sprite.width = sprite_as_lines[0].len();
         sprite.height = sprite_as_lines.len();
 
         sprite.tile_ids = Sprite::as_tile_ids(game, &sprite_as_lines, sprite.width, sprite.height);
@@ -73,8 +73,7 @@ impl Sprite {
 
                         game.tile_atlas.insert(tile.id, tile);
                         tile_ids.push(tile.id);
-                    } else {
-                        // If tile is not unique, find existing key
+                    } else { // If tile is not unique, find existing key
                         tile_ids.push(
                             *game.tile_atlas.iter().find_map(|(k, v)| {
                                 if v.pix_buf == sprite_tiles[tile_idx].pix_buf { 
@@ -115,7 +114,7 @@ impl Sprite {
 
             // TODO: Error handling in closure
             for line in reader.lines().map(
-                |line| String::from(line.unwrap().trim().replace("@", " "))
+                |line| String::from(line.unwrap().replace("@", " ").replace("\n", ""))
             ) {
                 sprite_as_lines.push(line); 
             }

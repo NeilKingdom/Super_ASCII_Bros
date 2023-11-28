@@ -44,13 +44,19 @@ impl Game {
             for entry in entries {
                 if let Ok(entry) = entry {
                     let file_name = entry.file_name();
-                    if file_name.eq("mario.txt") { continue; }
                     let file_name_str = file_name.to_str().expect("file name into str failed");
                     let full_path = OsString::from(sprite_dir.to_owned() + file_name_str);
 
                     // TODO: Somehow include entity type information (maybe using dict?)
                     let sprite = Sprite::new(self, PathBuf::from(full_path), 255);
-                    let actor = Actor::new(ActorProps::new(5.0, 5.0, sprite), Box::new(MushroomActions));
+                    let actor: Actor;
+                    if file_name.eq("mario.txt") {
+                        actor = Actor::new(ActorProps::new(5.0, 5.0, sprite), Box::new(MushroomActions));
+                    } else if file_name.eq("mushroom.txt") {
+                        actor = Actor::new(ActorProps::new(20.0, 15.0, sprite), Box::new(MarioActions));
+                    } else {
+                        panic!("Unexpected actor type");
+                    }
                     self.actor_list.push(actor);
                 }
             }
