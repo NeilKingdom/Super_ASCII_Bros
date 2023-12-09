@@ -5,14 +5,16 @@ use crate::actor::sprite::tile::{Tile, PixBuf};
 use crate::actor::sprite::Sprite;
 
 use std::ffi::OsString;
+use std::hash::BuildHasherDefault;
 use std::path::PathBuf;
 use std::collections::HashMap;
+use fnv::FnvHasher;
 use itertools::Itertools;
 use std::{fmt,fs};
 
 // Handles game logic e.g. timers, physics, etc.
 pub struct Game {
-    pub tile_atlas: HashMap<Ident, Tile>,
+    pub tile_atlas: HashMap<Ident, Tile, BuildHasherDefault<FnvHasher>>,
     pub actor_list: Vec<Actor>,
     //pub level_list: Vec<Level>,
     pub next_tile_id: Ident,
@@ -48,12 +50,15 @@ impl Game {
                     let full_path = OsString::from(sprite_dir.to_owned() + file_name_str);
 
                     // TODO: Somehow include entity type information (maybe using dict?)
-                    let sprite = Sprite::new(self, PathBuf::from(full_path), 255);
+                    let sprite: Sprite;
                     let actor: Actor;
+                    // TODO: This is temporary for testing
                     if file_name.eq("mario.txt") {
-                        actor = Actor::new(ActorProps::new(5.0, 5.0, sprite), Box::new(MushroomActions));
+                        sprite = Sprite::new(self, PathBuf::from(full_path), 255);
+                        actor = Actor::new(ActorProps::new(5.0, 15.0, sprite), Box::new(MushroomActions));
                     } else if file_name.eq("mushroom.txt") {
-                        actor = Actor::new(ActorProps::new(20.0, 15.0, sprite), Box::new(MarioActions));
+                        sprite = Sprite::new(self, PathBuf::from(full_path), 0);
+                        actor = Actor::new(ActorProps::new(60.0, 15.0, sprite), Box::new(MarioActions));
                     } else {
                         panic!("Unexpected actor type");
                     }
@@ -94,7 +99,10 @@ impl fmt::Debug for Game {
         for key in self.tile_atlas.keys().sorted() {
             println!();
             if let Some(tile) = self.tile_atlas.get(key) {
-                let pix_buf_chars: Vec<char> = tile.pix_buf.iter().map(|&pixel| pixel as char).collect();
+                let pix_buf_chars: Vec<_> = tile.pix_buf
+                    .iter()
+                    .map(|&pixel| pixel as char)
+                    .collect();
 
                 write!(f, "{:<2} [", key)?;
                 for (i, c) in pix_buf_chars.iter().enumerate() {

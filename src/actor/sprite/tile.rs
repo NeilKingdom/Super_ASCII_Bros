@@ -64,7 +64,7 @@ impl Tile {
         color_buf: [Color; TILE_AREA],
         pix_buf: PixBuf,
     ) -> Self {
-        Tile { id, color_buf, pix_buf }
+        Self { id, color_buf, pix_buf }
     }
 }
 

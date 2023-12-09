@@ -1,5 +1,5 @@
 [package]
-name = "Super_ASCII_Bros"
+name = "super_ascii_bros"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,5 +7,6 @@ edition = "2021"
 
 [dependencies]
 crossterm = "0.27.0"
+fnv = "1.0.7"
 itertools = "0.11.0"
 mpsc = "0.2.3"

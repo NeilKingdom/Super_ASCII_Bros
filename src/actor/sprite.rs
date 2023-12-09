@@ -114,7 +114,7 @@ impl Sprite {
 
             // TODO: Error handling in closure
             for line in reader.lines().map(
-                |line| String::from(line.unwrap().replace("@", " ").replace("\n", ""))
+                |line| String::from(line.unwrap().replace("\n", ""))
             ) {
                 sprite_as_lines.push(line); 
             }

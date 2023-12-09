@@ -1,5 +1,3 @@
-#![allow(non_snake_case)]
-
 pub mod ascii_bros;
 pub mod game;
 pub mod actor;
@@ -10,7 +8,7 @@ use actor::{Actor, sprite::Sprite};
 
 use actor::sprite::tile::TILE_AREA;
 use crossterm::{execute, QueueableCommand};
-use crossterm::cursor::{self, Hide, MoveTo};
+use crossterm::cursor::{Hide, MoveTo};
 use crossterm::event::KeyModifiers;
 use crossterm::terminal::{self, Clear, ClearType, DisableLineWrap};
 use crossterm::event::{poll, read, Event, KeyCode};
@@ -18,9 +16,9 @@ use crossterm::style::Print;
 
 use std::io::{stdout, Stdout, Write};
 use std::time::{Duration, SystemTime};
-use std::collections::HashMap;
 use std::error::Error;
 use std::thread;
+use fnv::FnvHashMap;
 
 pub struct Window {
     stdout_hndl: Stdout,
@@ -34,7 +32,7 @@ pub struct Window {
 impl Window {
     fn new() -> Self {
         let (width, height) = terminal::size().unwrap();
-        Window {
+        Self {
             stdout_hndl: stdout(),
             height, width,
             color_buf: Vec::new(),
@@ -55,9 +53,9 @@ impl Window {
 
     // TODO: Return errors
     fn render_frame(&mut self, game: &mut Game) {
-        let _ = self.clear();
+        self.clear().expect("Could not execute clear");
 
-        let render_batch = &game.actor_list
+        let mut render_batch = game.actor_list
             .iter()
             .filter(|actor| { 
                 (actor.props.y_pos.round() as u16) < self.height &&
@@ -66,8 +64,7 @@ impl Window {
                 actor.props.x_pos >= 0.0
             })
             .collect::<Vec<&Actor>>();
-        //
-        // ^^ Then order by y pos, then x pos
+        render_batch.sort_by(|a, b| a.props.sprite.z_order.cmp(&b.props.sprite.z_order));
         
         let stride = (TILE_AREA as f64).sqrt() as usize;
 
@@ -118,12 +115,12 @@ impl Window {
     }
 }
 
-fn main() -> () {
+fn main() {
     let mut win = Window::new();
 
     // Create a game object
     let mut game = Game {
-        tile_atlas: HashMap::new(),
+        tile_atlas: FnvHashMap::default(),
         actor_list: Vec::new(),
         next_tile_id: 0,
     };
